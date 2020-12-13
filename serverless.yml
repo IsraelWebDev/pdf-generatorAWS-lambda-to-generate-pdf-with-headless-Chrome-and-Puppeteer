@@ -1,0 +1,61 @@
+service: ${self:custom.organization}-functions-${self:custom.object}-${self:custom.action}
+
+custom:
+  stage: "${opt:stage, self:provider.stage}"
+  organization: devfusion
+  object: pdf
+  action: create
+  alerts:
+    dashboards: false
+    topics:
+      alarm: ${file(config/${self:custom.stage}/serverless.yml):dead_letter_queues}
+    definitions:
+      functionThrottles:
+        period: 180
+      functionErrors:
+        period: 180
+    alarms:
+      - functionThrottles
+      - functionErrors  
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+  memorySize: 1024
+  stage: ${opt:stage, 'dev'}
+  region: ${file(config/${self:custom.stage}/serverless.yml):region}
+  #deploymentBucket:
+  #  name: ${self:custom.organization}-${self:custom.stage}-${self:custom.object}-${self:custom.action}
+  versionFunctions: true
+  environment: ${file(config/${self:custom.stage}/variables.yml)}
+  #role: ${file(config/${self:custom.stage}/serverless.yml):role}
+  apiKeys:
+    - ${self:custom.organization}-${self:custom.stage}-${self:custom.object}-${self:custom.action}-api-key
+  layers:
+    - arn:aws:lambda:${self:provider.region}:764866452798:layer:chrome-aws-lambda:10
+  iamRoleStatements:
+    - Effect: 'Allow'
+      Action:
+        - "sns:Publish"
+      Resource:
+        - ${file(config/${self:custom.stage}/serverless.yml):dead_letter_queues}
+
+plugins:
+  - serverless-offline
+  - serverless-plugin-aws-alerts
+
+functions:
+  generate_pdf:
+    description: ${self:custom.stage}
+    events:
+      - http:
+          path: ${self:custom.object}/${self:custom.action}
+          method: POST
+    name: ${self:custom.organization}-${self:custom.stage}-${self:custom.object}-${self:custom.action}
+    handler: src/handler.main
+    reservedConcurrency: 10
+    onError: ${file(config/${self:custom.stage}/serverless.yml):dead_letter_queues}
+    tags:
+      STAGE: ${self:custom.stage}
+      OBJECT: ${self:custom.object}
+      ACTION: ${self:custom.action}
