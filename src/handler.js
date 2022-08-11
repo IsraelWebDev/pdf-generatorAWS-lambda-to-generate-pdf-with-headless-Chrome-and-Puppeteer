@@ -37,13 +37,13 @@ exports.main = async (event, context, callback) => {
 let getParameters = async (event) => {
   console.log();
   console.log('Function: getParameters');
-  console.log('Parameters : ', event);
+  console.log('Parameters : ', event.body);
   var ajv = new Ajv({
     useDefaults: true
   });
   let body = null;
   try {
-    body = JSON.parse(event.body);
+    body = (event.body);
   } catch (err) {
     throw {
       code: "invalidParameter",
@@ -58,7 +58,7 @@ let getParameters = async (event) => {
     throw {
       code: "invalidParameter",
       message: {
-        errors: validate.errors,
+        errors: JSON.stringify(validate.errors),
         schema: schema
       },
       stack: new Error().stack
@@ -83,7 +83,11 @@ let generatePdf = async (data) => {
   });
 
   const page = await browser.newPage();
-
+  await page.setDefaultNavigationTimeout(0);
+  
+  if (data.hasOwnProperty('cookies')) {
+    await page.setCookie(...data.cookies);
+  }
   if (data.hasOwnProperty('url')) {
     await page.goto(data.url, {
       waitUntil: ['networkidle0', 'load', 'domcontentloaded']
@@ -93,10 +97,10 @@ let generatePdf = async (data) => {
       waitUntil: ['networkidle0', 'load', 'domcontentloaded']
     });
   }
-  await page.emulateMedia("screen");
+  //await page.emulateMedia("screen");
   let pdf = null;
   try {
-    pdf = await page.pdf(data.options);
+    pdf = data.output=='PDF' ? await page.pdf(data.options) : await page.content();
   } catch (err) {
     throw {
       code: "invalidParameter",
@@ -108,7 +112,8 @@ let generatePdf = async (data) => {
   return {
     key: data.fileName,
     s3Bucket: data.s3Bucket,
-    pdf: pdf
+    pdf: pdf,
+    output: data.output
   };
 }
 
@@ -119,10 +124,10 @@ let putPdfToS3Bucket = async (data) => {
   console.log('Parameters (s3Bucket): ', data.s3Bucket);
   const s3 = new aws.S3({
     region: data.s3Bucket.region,
-    credentials: {
+    /*credentials: {
       accessKeyId: data.s3Bucket.credentials.awsAccessKeyId,
       secretAccessKey: data.s3Bucket.credentials.awsSecretAccessKey
-    }
+    }*/
   });
 
   try {
@@ -130,7 +135,7 @@ let putPdfToS3Bucket = async (data) => {
       Bucket: data.s3Bucket.name,
       Key: data.key,
       Body: data.pdf,
-      ContentType: "application/pdf",
+      ContentType: data.output!='HTML' ? "application/pdf" : "text/html",
     }).promise();
   } catch (err) {
     throw {
@@ -155,7 +160,7 @@ const schema = {
       "title": "fileName",
       "description": "<string> The file name of the pdf.",
       "type": "string",
-      "pattern": "^.+\\.pdf$"
+      "pattern": "^.+\\.\(pdf|html\)$"
     },
     "url": {
       "title": "url",
@@ -166,6 +171,34 @@ const schema = {
       "title": "html",
       "description": "<string> The html to convert in pdf.",
       "type": "string",
+    },
+    "cookies":{
+      "title": "cookies",
+      "description":"<array> The cookies to send to Chromium.",
+      "type":"array",
+      "items":{
+        "type":"object",
+        "properties":{
+          "name":{
+            "type":"string"
+          },
+          "value":{
+            "type":"string"
+          },
+          "domain":{
+            "type":"string"
+          },
+          "url":{
+            "type":"string"
+          }
+        }
+      }
+    },
+    "output": {
+      "title": "output",
+      "description": "<string> Optionally set return type to HTML",
+      "type": "string",
+      "default": "PDF"
     },
     "s3Bucket": {
       "title": "s3Bucket",
@@ -200,11 +233,11 @@ const schema = {
             }
           },
           "default": {},
-          "required": ["awsAccessKeyId", "awsSecretAccessKey"]
+          "required": []
         }
       },
       "default": {},
-      "required": ["name", "credentials"]
+      "required": ["name"]
     },
     "defaultViewport": {
       "title": "defaultViewport",
@@ -347,3 +380,5 @@ const schema = {
   },
   "required": ["fileName"]
 };
+
+

@@ -22,6 +22,7 @@ provider:
   name: aws
   runtime: nodejs12.x
   memorySize: 1024
+  timeout: 60
   stage: ${opt:stage, 'dev'}
   region: ${file(config/${self:custom.stage}/serverless.yml):region}
   #deploymentBucket:
@@ -39,6 +40,11 @@ provider:
         - "sns:Publish"
       Resource:
         - ${file(config/${self:custom.stage}/serverless.yml):dead_letter_queues}
+    - Effect: 'Allow'
+      Action:
+        - "s3:PutObject"
+      Resource:
+        - "*"
 
 plugins:
   - serverless-offline
@@ -51,7 +57,7 @@ functions:
       - http:
           path: ${self:custom.object}/${self:custom.action}
           method: POST
-    name: ${self:custom.organization}-${self:custom.stage}-${self:custom.object}-${self:custom.action}
+    name: ${self:custom.organization}-${self:custom.object}-${self:custom.action}
     handler: src/handler.main
     reservedConcurrency: 10
     onError: ${file(config/${self:custom.stage}/serverless.yml):dead_letter_queues}
